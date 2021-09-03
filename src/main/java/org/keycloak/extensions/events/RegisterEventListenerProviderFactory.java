@@ -18,6 +18,10 @@ public class RegisterEventListenerProviderFactory implements EventListenerProvid
     private String authRealm;
     private String authClientId;
     private String authClientSecret;
+    private String learningBaseUrl;
+    private String learningApiToken;
+    private String lifterApiKey;
+    private String lifterApiSecret;
     
     @Override
     public EventListenerProvider create(KeycloakSession session) {
@@ -29,7 +33,11 @@ public class RegisterEventListenerProviderFactory implements EventListenerProvid
             authBaseUrl,
             authRealm,
             authClientId,
-            authClientSecret
+            authClientSecret,
+            learningBaseUrl,
+            learningApiToken,
+            lifterApiKey,
+            lifterApiSecret
         );
     }
     
@@ -51,6 +59,10 @@ public class RegisterEventListenerProviderFactory implements EventListenerProvid
         authRealm = config.get("authRealm");
         authClientId = config.get("authClientId");
         authClientSecret = config.get("authClientSecret");
+        learningBaseUrl = config.get("learningBaseUrl");
+        learningApiToken = config.get("learningApiToken");
+        lifterApiKey = config.get("lifterApiKey");
+        lifterApiSecret = config.get("lifterApiSecret");
     }
 
     @Override

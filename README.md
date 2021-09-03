@@ -1,12 +1,14 @@
 # keycloak-register-event-listener
 
-Keycloak event listener that will update the CRM of Plibo when someone registers.  
+Keycloak event listener that will do custom actions when someone registers for Plibo:
+- Update the CRM of Plibo.  
 If a record exists with the same email address, the "Keycloak ID" field will be filled in. If there is no record in the CRM with the given email address, a new record will be created.
+- Create a user in the user DB of the Learning Center (Wordpress)
+- Create API credentials for the user to connect to LifterLMS
 
 ## Installation
 
-- Create JAR (with dependencies)
-
+- Create JAR (with dependencies)  
 `mvn assembly:assembly -DdescriptorId=jar-with-dependencies`
 
 - Add JAR to `{$KEYCLOAK_HOME}/providers/`
@@ -22,6 +24,10 @@ If a record exists with the same email address, the "Keycloak ID" field will be 
             <property name="authRealm" value="AUTH_REALM"/>
             <property name="authClientId" value="AUTH_CLIENT_ID"/>
             <property name="authClientSecret" value="AUTH_CLIENT_SECRET"/>
+            <property name="learningBaseUrl" value="LEARNING_BASE_URL"/>
+            <property name="learningApiToken" value="LEARNING_API_TOKEN"/>
+            <property name="lifterApiKey" value="LIFTER_API_KEY"/>
+            <property name="lifterApiSecret" value="LIFTER_API_SECRET"/>            
         </properties>
     </provider>
 </spi>
@@ -34,6 +40,10 @@ AUTH_BASE_URL: sheme + host of the authorization endpoint to retrieve the access
 AUTH_REALM: realm of the authorization endpoint to retrieve the access token.  
 AUTH_CLIENT_ID: client ID of the authorization endpoint to retrieve the access token.  
 AUTH_CLIENT_SECRET: client secret of the authorization endpoint to retrieve the access token.  
+LEARNING_BASE_URL: sheme + host of the Plibo Learning Center
+LEARNING_API_TOKEN: The admin API token for the Learning Center API (Wordpress)  
+LIFTER_API_KEY: The admin API key for LifterLMS  
+LIFTER_API_SECRET: The admin API secret for LifterLMS  
 
 - Restart Keycloak
 - Activate event listener in the realms by navigating to Events => Config. Add the 'register' event to 'Event Listeners'
