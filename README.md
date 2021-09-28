@@ -25,7 +25,6 @@ If a record exists with the same email address, the "Keycloak ID" field will be 
             <property name="authClientId" value="AUTH_CLIENT_ID"/>
             <property name="authClientSecret" value="AUTH_CLIENT_SECRET"/>
             <property name="learningBaseUrl" value="LEARNING_BASE_URL"/>
-            <property name="learningApiToken" value="LEARNING_API_TOKEN"/>
             <property name="lifterApiKey" value="LIFTER_API_KEY"/>
             <property name="lifterApiSecret" value="LIFTER_API_SECRET"/>            
         </properties>
@@ -41,7 +40,6 @@ AUTH_REALM: realm of the authorization endpoint to retrieve the access token.
 AUTH_CLIENT_ID: client ID of the authorization endpoint to retrieve the access token.  
 AUTH_CLIENT_SECRET: client secret of the authorization endpoint to retrieve the access token.  
 LEARNING_BASE_URL: sheme + host of the Plibo Learning Center
-LEARNING_API_TOKEN: The admin API token for the Learning Center API (Wordpress)  
 LIFTER_API_KEY: The admin API key for LifterLMS  
 LIFTER_API_SECRET: The admin API secret for LifterLMS  
 

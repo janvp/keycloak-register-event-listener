@@ -29,14 +29,13 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
     private String authClientId;
     private String authClientSecret;
     private String learningBaseUrl;
-    private String learningApiToken;
     private String lifterApiKey;
     private String lifterApiSecret;
     private int wpUserId;
 
     public RegisterEventListenerProvider(KeycloakSession session, List<String> realms, List<String> clientIds,
             String apiBaseUrl, String authBaseUrl, String authRealm, String authClientId, String authClientSecret,
-            String learningBaseUrl, String learningApiToken, String lifterApiKey, String lifterApiSecret) {
+            String learningBaseUrl, String lifterApiKey, String lifterApiSecret) {
         this.session = session;
         this.realms = realms;
         this.clientIds = clientIds;
@@ -46,7 +45,6 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
         this.authClientId = authClientId;
         this.authClientSecret = authClientSecret;
         this.learningBaseUrl = learningBaseUrl;
-        this.learningApiToken = learningApiToken;
         this.lifterApiKey = lifterApiKey;
         this.lifterApiSecret = lifterApiSecret;
     }
@@ -135,17 +133,32 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
         String email = event.getDetails().get("email");
 
         try {
-            registerUserInCrm(userId, email);
+            // Fetch the API token for the Plibo API
+            setApiToken();
+
+            try {
+                registerUserInCrm(userId, email);
+            } catch (IOException e) {
+                logger.error("Error updating CRM during REGISTER event: " + e.toString());
+                e.printStackTrace();
+            }
+    
+            try {
+                registerUserInLearningCenter(userId, email);
+            } catch (IOException e) {
+                logger.error("Error creating user in Learning Center during REGISTER event: " + e.toString());
+                e.printStackTrace();
+            }
+    
         } catch (IOException e) {
-            logger.error("Error updating CRM during REGISTER event: " + e.toString());
+            logger.error("Error fetching API token during REGISTER event: " + e.toString());
             e.printStackTrace();
         }
 
         try {
-            registerUserInLearningCenter(userId, email);
             createUserApiCredentials(userId);
         } catch (IOException e) {
-            logger.error("Error registering user and/or creating API key in Learning Center during REGISTER event: " + e.toString());
+            logger.error("Error creating API key in Learning Center during REGISTER event: " + e.toString());
             e.printStackTrace();
         }
     }
@@ -158,9 +171,6 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * @throws IOException
      */
     private void registerUserInCrm(String userId, String email) throws IOException {
-        // Fetch the API token for the Plibo API
-        setApiToken();
-
         // Fetch the CRM record to check if the user already exists in the CRM
         JSONObject crmRecord = getCrmRecord(email);
 
@@ -193,9 +203,9 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
         bodyJSON.put("password", getRandomString(20));
 
         RequestBody body = RequestBody.create(bodyJSON.toString(), JSON);
-        String url = learningBaseUrl + "/wp-json/wp/v2/users";
+        String url = apiBaseUrl + "/api/learn/users/";
         Request request = new Request.Builder().url(url).post(body)
-                .addHeader("Authorization", "Bearer " + learningApiToken).build();
+                .addHeader("Authorization", "Bearer " + apiToken).build();
 
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {

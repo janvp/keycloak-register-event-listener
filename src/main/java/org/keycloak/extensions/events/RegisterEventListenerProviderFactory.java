@@ -19,7 +19,6 @@ public class RegisterEventListenerProviderFactory implements EventListenerProvid
     private String authClientId;
     private String authClientSecret;
     private String learningBaseUrl;
-    private String learningApiToken;
     private String lifterApiKey;
     private String lifterApiSecret;
     
@@ -35,7 +34,6 @@ public class RegisterEventListenerProviderFactory implements EventListenerProvid
             authClientId,
             authClientSecret,
             learningBaseUrl,
-            learningApiToken,
             lifterApiKey,
             lifterApiSecret
         );
@@ -60,7 +58,6 @@ public class RegisterEventListenerProviderFactory implements EventListenerProvid
         authClientId = config.get("authClientId");
         authClientSecret = config.get("authClientSecret");
         learningBaseUrl = config.get("learningBaseUrl");
-        learningApiToken = config.get("learningApiToken");
         lifterApiKey = config.get("lifterApiKey");
         lifterApiSecret = config.get("lifterApiSecret");
     }
