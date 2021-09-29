@@ -10,6 +10,8 @@ import org.keycloak.events.Event;
 import org.keycloak.events.EventListenerProvider;
 import org.keycloak.events.EventType;
 import org.keycloak.events.admin.AdminEvent;
+import org.keycloak.events.admin.OperationType;
+import org.keycloak.events.admin.ResourceType;
 import org.keycloak.models.KeycloakSession;
 import org.keycloak.models.UserModel;
 
@@ -62,7 +64,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
         // Only handle events of type REGISTER or LOGIN
         if (event.getType() == EventType.REGISTER) {
-            handleRegister(event);
+            handleRegister(event.getUserId(), event.getDetails().get("email"), true);
         } else if (event.getType() == EventType.LOGIN) {
             handleLogin(event);
         }
@@ -70,6 +72,19 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
     @Override
     public void onEvent(AdminEvent event, boolean includeRepresentation) {
+        // Check if the realm is in the list to handle
+        if (realms != null && !realms.contains(event.getRealmId())) {
+            logger.info("Realm not handled. Realm: " + event.getRealmId());
+            return;
+        }
+
+        // Only handle CREATE USER events
+        if (event.getResourceType() == ResourceType.USER && event.getOperationType() == OperationType.CREATE) {
+            JSONObject userDetails = new JSONObject(event.getRepresentation());
+            String[] pathParts = event.getResourcePath().split("/");
+            String userId = pathParts[pathParts.length - 1];
+            handleRegister(userId, userDetails.getString("email"), false);
+        }
     }
 
     @Override
@@ -83,7 +98,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * @param event
      */
     private void handleLogin(Event event) {
-        logger.info("Handle Login");
+        logger.info("Handle Login " + event.getUserId());
         UserModel user = session.users().getUserById(event.getUserId(), session.getContext().getRealm());
         
         try {
@@ -122,25 +137,27 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
     /**
      * Handle register event.
-     * CRM record will be updated or created with the Keycloak user ID.
+     * CRM record will be updated or created with the Keycloak user ID if updateCrm is true.
      * User will be created in the learning center.
      * LifterLMS API keys for this user will be created.
-     * @param event
+     * @param userId
+     * @param email
+     * @param updateCrm
      */
-    private void handleRegister(Event event) {
-        logger.info("Handle Register");
-        String userId = event.getUserId();
-        String email = event.getDetails().get("email");
+    private void handleRegister(String userId, String email, boolean updateCrm) {
+        logger.info("Handle Register " + userId);
 
         try {
             // Fetch the API token for the Plibo API
             setApiToken();
 
-            try {
-                registerUserInCrm(userId, email);
-            } catch (IOException e) {
-                logger.error("Error updating CRM during REGISTER event: " + e.toString());
-                e.printStackTrace();
+            if (updateCrm) {
+                try {
+                    registerUserInCrm(userId, email);
+                } catch (IOException e) {
+                    logger.error("Error updating CRM during REGISTER event: " + e.toString());
+                    e.printStackTrace();
+                }
             }
     
             try {
