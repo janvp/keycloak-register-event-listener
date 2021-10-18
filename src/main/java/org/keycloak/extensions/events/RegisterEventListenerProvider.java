@@ -65,12 +65,11 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
         // Only handle events of type REGISTER or LOGIN
         if (event.getType() == EventType.REGISTER) {
-            MultivaluedMap<String, String> formParameters = session.getContext().getContextObject(HttpRequest.class)
-                .getFormParameters();
-            String firstName = formParameters.getFirst("firstName");
-            String lastName = formParameters.getFirst("lastName");
-            handleRegister(event.getUserId(), event.getDetails().get("email"), firstName, lastName, true);
+
+            handleRegister(event.getUserId(), event.getDetails().get("email"), true);
+        
         } else if (event.getType() == EventType.LOGIN) {
+            
             String loginByForm = session.getContext().getUri().getQueryParameters().getFirst("loginByForm");
             UserModel user = session.users().getUserById(event.getUserId(), session.getContext().getRealm());
             Integer nbSessions = 0;
@@ -98,7 +97,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
             JSONObject userDetails = new JSONObject(event.getRepresentation());
             String[] pathParts = event.getResourcePath().split("/");
             String userId = pathParts[pathParts.length - 1];
-            handleRegister(userId, userDetails.getString("email"), null, null, false);
+            handleRegister(userId, userDetails.getString("email"), false);
         }
     }
 
@@ -124,11 +123,9 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * LifterLMS API keys for this user will be created.
      * @param userId
      * @param email
-     * @param firstName
-     * @param lastName
      * @param updateCrm
      */
-    private void handleRegister(String userId, String email, String firstName, String lastName, boolean updateCrm) {
+    private void handleRegister(String userId, String email, boolean updateCrm) {
         logger.info("Handle Register " + userId);
 
         UserModel user = session.users().getUserById(userId, session.getContext().getRealm());
@@ -140,7 +137,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
             if (updateCrm) {
                 try {
-                    registerUserInCrm(userId, email, firstName, lastName);
+                    registerUserInCrm(userId, email);
                 } catch (IOException e) {
                     logger.error("Error updating CRM during REGISTER event: " + e.toString());
                     e.printStackTrace();
@@ -172,18 +169,23 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * If it exists, the record will be updated. If not, a new record will be created.
      * @param userId
      * @param email
-     * @param firstName
-     * @param lastName
      * @throws IOException
      */
-    private void registerUserInCrm(String userId, String email, String firstName, String lastName) throws IOException {
+    private void registerUserInCrm(String userId, String email) throws IOException {
+    
         // Fetch the CRM record to check if the user already exists in the CRM
         JSONObject crmRecord = getCrmRecord(email);
 
         // Create or update the CRM record
         if (crmRecord == null) {
             logger.info("CRM record not found. Creating new one.");
-            createCrmRecord(userId, email, firstName, lastName);
+            MultivaluedMap<String, String> formParameters = session.getContext().getContextObject(HttpRequest.class)
+                .getFormParameters();
+            String firstName = formParameters.getFirst("firstName");
+            String lastName = formParameters.getFirst("lastName");
+            String campaign = session.getContext().getUri().getQueryParameters().getFirst("utm_campaign");
+
+            createCrmRecord(userId, email, firstName, lastName, campaign);
         } else {
             logger.info("CRM record found. Updating.");
             String crmId = crmRecord.getJSONObject("record").getString("id");
@@ -290,14 +292,23 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * @param email
      * @param firstName
      * @param lastName
+     * @param campaign
      * @throws IOException
      */
-    private void createCrmRecord(String userId, String email, String firstName, String lastName) throws IOException {
+    private void createCrmRecord(
+        String userId, 
+        String email, 
+        String firstName, 
+        String lastName, 
+        String campaign
+    ) throws IOException {
+
         JSONObject bodyJSON = new JSONObject();
         bodyJSON.put("Email", email);
         bodyJSON.put("First_Name", firstName);
         bodyJSON.put("Last_Name", lastName);
         bodyJSON.put("Keycloak_ID", userId);
+        bodyJSON.put("Campaign", campaign);
         bodyJSON.put("Lead_Source", "My Plibo");
         bodyJSON.put("Lead_Status", "000. New Digital hot lead");
 
