@@ -2,9 +2,11 @@ package org.keycloak.extensions.events;
 
 import java.io.IOException;
 import java.util.List;
+import javax.ws.rs.core.MultivaluedMap;
 import okhttp3.*;
 import org.apache.commons.text.RandomStringGenerator;
 import org.jboss.logging.Logger;
+import org.jboss.resteasy.spi.HttpRequest;
 import org.json.JSONObject;
 import org.keycloak.events.Event;
 import org.keycloak.events.EventListenerProvider;
@@ -20,7 +22,6 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
     private static Logger logger = Logger.getLogger(RegisterEventListenerProvider.class);
     private final OkHttpClient httpClient = new OkHttpClient();
     private final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
-    private final String tempLastNameCrm = "TEMP_KEYCLOAK";
     private KeycloakSession session;
     private String apiToken;
     private List<String> realms;
@@ -64,9 +65,23 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
         // Only handle events of type REGISTER or LOGIN
         if (event.getType() == EventType.REGISTER) {
-            handleRegister(event.getUserId(), event.getDetails().get("email"), true);
+            MultivaluedMap<String, String> formParameters = session.getContext().getContextObject(HttpRequest.class)
+                .getFormParameters();
+            String firstName = formParameters.getFirst("firstName");
+            String lastName = formParameters.getFirst("lastName");
+            handleRegister(event.getUserId(), event.getDetails().get("email"), firstName, lastName, true);
         } else if (event.getType() == EventType.LOGIN) {
-            handleLogin(event);
+            String loginByForm = session.getContext().getUri().getQueryParameters().getFirst("loginByForm");
+            UserModel user = session.users().getUserById(event.getUserId(), session.getContext().getRealm());
+            Integer nbSessions = 0;
+            try {
+                nbSessions = Integer.parseInt(user.getFirstAttribute("nb_sessions"));
+            } catch (NumberFormatException exc) {
+            }
+
+            if ((loginByForm != null && loginByForm.equals("true")) || nbSessions == 0) {
+                handleLogin(user, nbSessions);
+            }
         }
     }
 
@@ -83,7 +98,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
             JSONObject userDetails = new JSONObject(event.getRepresentation());
             String[] pathParts = event.getResourcePath().split("/");
             String userId = pathParts[pathParts.length - 1];
-            handleRegister(userId, userDetails.getString("email"), false);
+            handleRegister(userId, userDetails.getString("email"), null, null, false);
         }
     }
 
@@ -93,46 +108,13 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
     /**
      * Handle login event.
-     * The CRM record of this user will be fetched. If the last name of the CRM record is still the temporary name,
-     * then this is the first login for the user, and the CRM record will be updated with the real name of the user.
-     * @param event
+     * The nb_sessions attribute of the user will be increased by 1
+     * @param user
+     * @param nbSessions
      */
-    private void handleLogin(Event event) {
-        logger.info("Handle Login " + event.getUserId());
-        UserModel user = session.users().getUserById(event.getUserId(), session.getContext().getRealm());
-        
-        try {
-            // Fetch the API token for the Plibo API
-            setApiToken();
-
-            // Fetch the existing CRM record
-            JSONObject crmRecord = getCrmRecord(user.getEmail());
-            
-            if (crmRecord != null) {
-                String lastNameCrm = crmRecord.getJSONObject("record").getString("Last_Name");
-
-                // Check if the last name of the CRM record is the temporary name
-                if (lastNameCrm.equals(tempLastNameCrm)) {
-                    logger.info("Updating CRM record with temporary name");
-                    
-                    String crmId = crmRecord.getJSONObject("record").getString("id");
-                    
-                    // Create the request body
-                    JSONObject bodyJSON = new JSONObject();
-                    bodyJSON.put("First_Name", user.getFirstName());
-                    bodyJSON.put("Last_Name", user.getLastName());
-                    List<String> mobileNumberList = user.getAttribute("mobile_number");
-                    if (!mobileNumberList.isEmpty()) {
-                        bodyJSON.put("Phone", mobileNumberList.get(0));
-                    }
-
-                    updateCrmRecord(crmId, bodyJSON);
-                }
-            }
-        } catch (IOException e) {
-            logger.error("Error updating CRM during LOGIN event: " + e.toString());
-            e.printStackTrace();
-        }
+    private void handleLogin(UserModel user, Integer nbSessions) {
+        logger.info("Handle Login " + user.getId());
+        user.setSingleAttribute("nb_sessions", Integer.toString(nbSessions + 1));
     }
 
     /**
@@ -142,10 +124,15 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * LifterLMS API keys for this user will be created.
      * @param userId
      * @param email
+     * @param firstName
+     * @param lastName
      * @param updateCrm
      */
-    private void handleRegister(String userId, String email, boolean updateCrm) {
+    private void handleRegister(String userId, String email, String firstName, String lastName, boolean updateCrm) {
         logger.info("Handle Register " + userId);
+
+        UserModel user = session.users().getUserById(userId, session.getContext().getRealm());
+        user.setSingleAttribute("nb_sessions", "0");
 
         try {
             // Fetch the API token for the Plibo API
@@ -153,7 +140,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
 
             if (updateCrm) {
                 try {
-                    registerUserInCrm(userId, email);
+                    registerUserInCrm(userId, email, firstName, lastName);
                 } catch (IOException e) {
                     logger.error("Error updating CRM during REGISTER event: " + e.toString());
                     e.printStackTrace();
@@ -185,16 +172,18 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * If it exists, the record will be updated. If not, a new record will be created.
      * @param userId
      * @param email
+     * @param firstName
+     * @param lastName
      * @throws IOException
      */
-    private void registerUserInCrm(String userId, String email) throws IOException {
+    private void registerUserInCrm(String userId, String email, String firstName, String lastName) throws IOException {
         // Fetch the CRM record to check if the user already exists in the CRM
         JSONObject crmRecord = getCrmRecord(email);
 
         // Create or update the CRM record
         if (crmRecord == null) {
             logger.info("CRM record not found. Creating new one.");
-            createCrmRecord(userId, email);
+            createCrmRecord(userId, email, firstName, lastName);
         } else {
             logger.info("CRM record found. Updating.");
             String crmId = crmRecord.getJSONObject("record").getString("id");
@@ -299,12 +288,15 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      * Create a record in the CRM.
      * @param userId
      * @param email
+     * @param firstName
+     * @param lastName
      * @throws IOException
      */
-    private void createCrmRecord(String userId, String email) throws IOException {
+    private void createCrmRecord(String userId, String email, String firstName, String lastName) throws IOException {
         JSONObject bodyJSON = new JSONObject();
         bodyJSON.put("Email", email);
-        bodyJSON.put("Last_Name", tempLastNameCrm);
+        bodyJSON.put("First_Name", firstName);
+        bodyJSON.put("Last_Name", lastName);
         bodyJSON.put("Keycloak_ID", userId);
         bodyJSON.put("Lead_Source", "My Plibo");
         bodyJSON.put("Lead_Status", "000. New Digital hot lead");
