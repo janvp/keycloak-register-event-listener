@@ -150,6 +150,16 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
                 logger.error("Error creating user in Learning Center during REGISTER event: " + e.toString());
                 e.printStackTrace();
             }
+
+            String enrollmentCode = session.getContext().getUri().getQueryParameters().getFirst("enrollmentCode");
+            if (enrollmentCode != null) {
+                try {
+                    applyEnrollmentCode(enrollmentCode);
+                } catch (IOException e) {
+                    logger.error("Error applying the enrollment code during REGISTER event: " + e.toString());
+                    e.printStackTrace();
+                }
+            }
     
         } catch (IOException e) {
             logger.error("Error fetching API token during REGISTER event: " + e.toString());
@@ -225,6 +235,26 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
             wpUserId = responseJSON.getInt("id");
             UserModel user = session.users().getUserById(userId, session.getContext().getRealm());
             user.setSingleAttribute("wp_user_id", Integer.toString(wpUserId));
+        }
+    }
+
+    /**
+     * Apply the enrollment code to the user.
+     * @param enrollmentCode
+     * @throws IOException
+     */
+    private void applyEnrollmentCode(String enrollmentCode) throws IOException {
+        logger.info("Applying enrollment code: " + enrollmentCode);
+
+        RequestBody body = RequestBody.create("", JSON);
+        String url = apiBaseUrl + "/api/learn/users/" + wpUserId + "/enrollments/" + enrollmentCode;
+        Request request = new Request.Builder().url(url).post(body)
+                .addHeader("Authorization", "Bearer " + apiToken).build();
+
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Error while applying enrollment code. " + response);
+            }
         }
     }
 
