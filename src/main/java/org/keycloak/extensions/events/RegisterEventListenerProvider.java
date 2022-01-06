@@ -2,6 +2,7 @@ package org.keycloak.extensions.events;
 
 import java.io.IOException;
 import java.util.List;
+import javax.ws.rs.core.Cookie;
 import javax.ws.rs.core.MultivaluedMap;
 import okhttp3.*;
 import org.apache.commons.text.RandomStringGenerator;
@@ -22,6 +23,7 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
     private static Logger logger = Logger.getLogger(RegisterEventListenerProvider.class);
     private final OkHttpClient httpClient = new OkHttpClient();
     private final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+    private final String tempLastNameCrm = "TEMP_KEYCLOAK";
     private KeycloakSession session;
     private String apiToken;
     private List<String> realms;
@@ -78,7 +80,13 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
             } catch (NumberFormatException exc) {
             }
 
-            if ((loginByForm != null && loginByForm.equals("true")) || nbSessions == 0) {
+            // Only handle login events when the user had to log in by the login page.
+            // Login events also happen on every page load (silent authentication) to check if the session is still active.
+            if (
+                nbSessions == 0                                                 // Directly after registration
+                || loginByForm != null && loginByForm.equals("true")            // User filled in user/pass form
+                || event.getDetails().get("identity_provider") != null          // User logged in by social provider
+            ) {
                 handleLogin(user, nbSessions);
             }
         }
@@ -113,6 +121,42 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
      */
     private void handleLogin(UserModel user, Integer nbSessions) {
         logger.info("Handle Login " + user.getId());
+
+        // When the user registered by one of the social providers, we didn't have access to his last name and a 
+        // temporary dummy name was set in the CRM. If this is the first login event, we'll check if the user has
+        // the temp name in CRM, and if yes, we replace it by the real name.
+        if (nbSessions == 0) {
+            try {
+                // Fetch the API token for the Plibo API
+                setApiToken();
+    
+                // Fetch the existing CRM record
+                JSONObject crmRecord = getCrmRecord(user.getEmail());
+                
+                if (crmRecord != null) {
+                    String lastNameCrm = crmRecord.getJSONObject("record").getString("Last_Name");
+    
+                    // Check if the last name of the CRM record is the temporary name
+                    if (lastNameCrm.equals(tempLastNameCrm)) {
+                        logger.info("Updating CRM record with temporary name");
+                        
+                        String crmId = crmRecord.getJSONObject("record").getString("id");
+                        
+                        // Create the request body
+                        JSONObject bodyJSON = new JSONObject();
+                        bodyJSON.put("First_Name", user.getFirstName());
+                        bodyJSON.put("Last_Name", user.getLastName());
+    
+                        updateCrmRecord(crmId, bodyJSON);
+                    }
+                }
+            } catch (IOException e) {
+                logger.error("Error updating CRM during LOGIN event: " + e.toString());
+                e.printStackTrace();
+            }
+        }
+
+        // Increase session counter
         user.setSingleAttribute("nb_sessions", Integer.toString(nbSessions + 1));
     }
 
@@ -151,7 +195,12 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
                 e.printStackTrace();
             }
 
-            String enrollmentCode = session.getContext().getUri().getQueryParameters().getFirst("enrollmentCode");
+            String enrollmentCode = null;
+            Cookie enrollmentCodeCookie = session.getContext().getRequestHeaders().getCookies().get("enrollmentCode");
+            if (enrollmentCodeCookie != null) {
+                enrollmentCode = enrollmentCodeCookie.getValue();
+            }
+
             if (enrollmentCode != null) {
                 try {
                     applyEnrollmentCode(enrollmentCode);
@@ -189,11 +238,26 @@ public class RegisterEventListenerProvider implements EventListenerProvider {
         // Create or update the CRM record
         if (crmRecord == null) {
             logger.info("CRM record not found. Creating new one.");
+
+            // First and last name are not available in the event details when registering. If the user registered by
+            // filling in the form, we can get the first and last name by the form fields.
             MultivaluedMap<String, String> formParameters = session.getContext().getContextObject(HttpRequest.class)
                 .getFormParameters();
             String firstName = formParameters.getFirst("firstName");
             String lastName = formParameters.getFirst("lastName");
-            String campaign = session.getContext().getUri().getQueryParameters().getFirst("utm_campaign");
+
+            // When the user registered by one of the social providers, we don't have the name. 
+            // For CRM, the last name is required. We set a dummy last name, which will be overwritten during the next
+            // login event.
+            if (lastName == null) {
+                lastName = tempLastNameCrm;
+            }
+
+            String campaign = null;
+            Cookie campaignCookie = session.getContext().getRequestHeaders().getCookies().get("utm_campaign");
+            if (campaignCookie != null) {
+                campaign = campaignCookie.getValue();
+            }
 
             createCrmRecord(userId, email, firstName, lastName, campaign);
         } else {
